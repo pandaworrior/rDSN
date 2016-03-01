@@ -61,6 +61,7 @@ void marshall(binary_writer& writer, const app_state& val)
     marshall(writer, val.app_type);
     marshall(writer, val.app_name);
     marshall(writer, val.is_stateful);
+    marshall(writer, val.package_id);
     marshall(writer, val.app_id);
     marshall(writer, val.partition_count);
     marshall(writer, val.partitions);
@@ -75,6 +76,7 @@ void marshall_json(blob& output, const app_state& app, bool available_status)
     writer.String("app_type"); writer.String(app.app_type.c_str());
     writer.String("app_name"); writer.String(app.app_name.c_str());
     writer.String("is_stateful"); writer.Bool(app.is_stateful);
+    writer.String("package_id"); writer.String(app.package_id.c_str());
     writer.String("app_id"); writer.Int(app.app_id);
     writer.String("partition_count"); writer.Int(app.partition_count);
     writer.String("status"); writer.String(available_status?"available":"dropped");
@@ -101,6 +103,7 @@ void unmarshall(binary_reader& reader, /*out*/ app_state& val)
     unmarshall(reader, val.app_type);
     unmarshall(reader, val.app_name);
     unmarshall(reader, val.is_stateful);
+    unmarshall(reader, val.package_id);
     unmarshall(reader, val.app_id);
     unmarshall(reader, val.partition_count);
     unmarshall(reader, val.partitions);
@@ -109,6 +112,7 @@ void unmarshall(binary_reader& reader, /*out*/ app_state& val)
 void init_partition_configuration(/*out*/partition_configuration& pc, /*in*/const app_state& app, int32_t max_replica_count)
 {
     pc.app_type = app.app_type;
+    pc.package_id = app.package_id;
     pc.ballot = 0;
     pc.gpid.app_id = app.app_id;
     pc.last_committed_decree = 0;
@@ -129,6 +133,7 @@ void unmarshall_json(const blob& buf, app_state& app)
     app.app_id = doc["app_id"].GetInt();
     app.app_name = doc["app_name"].GetString();
     app.is_stateful = doc["is_stateful"].GetBool();
+    app.package_id = doc["package_id"].GetString();
     app.partition_count = doc["partition_count"].GetInt();
     app.status = strcmp(doc["status"].GetString(), "available")==0?AS_AVAILABLE:AS_DROPPED;
     partition_configuration pc;
@@ -148,6 +153,7 @@ void unmarshall_json(const blob& buf, partition_configuration& pc)
         return;
 
     pc.app_type = doc["app_type"].GetString();
+    pc.package_id = doc["package_id"].GetString();
     pc.gpid.app_id = doc["gpid"]["app_id"].GetInt();
     pc.gpid.pidx = doc["gpid"]["pidx"].GetInt();
     pc.ballot = doc["ballot"].GetInt64();
@@ -985,11 +991,14 @@ void server_state::create_app(dsn_message_t msg)
     int32_t index;
     ::unmarshall(msg ,request);
     
-    ddebug("create app request, name(%s), type(%s), partition_count(%d), replica_count(%d)",
+    ddebug("create app request, name(%s), type(%s), partition_count(%d), replica_count(%d), stateful(%s), package_id(%s)",
            request.app_name.c_str(),
            request.options.app_type.c_str(),
            request.options.partition_count,
-           request.options.replica_count);
+           request.options.replica_count,
+           request.options.is_stateful ? "true" : "false",
+           request.options.package_id.c_str()
+        );
 
     auto option_match_check = [](const create_app_options& opt, const app_state& exist_app) {
         return opt.partition_count==exist_app.partition_count &&
@@ -1036,6 +1045,8 @@ void server_state::create_app(dsn_message_t msg)
             //the app_id is started from 1!!!
             app.app_id = index + 1;
             app.app_name = request.app_name;
+            app.package_id = request.options.package_id;
+            app.is_stateful = request.options.is_stateful;
             app.app_type = request.options.app_type;
             app.partition_count = request.options.partition_count;
             app.available_partitions.store(0);
@@ -1159,6 +1170,8 @@ void server_state::list_apps(dsn_message_t msg)
                 info.app_type = app.app_type;
                 info.app_name = app.app_name;
                 info.partition_count = app.partition_count;
+                info.is_stateful = app.is_stateful;
+                info.package_id = app.package_id;
                 response.infos.push_back(info);
             }
         }

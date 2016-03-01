@@ -5,7 +5,7 @@
 
 /* @(#) $Id$ */
 
-#include <dsn/ext/zlib.h>
+#include <dsn/ext/zlib/zlib.h>
 
 #define local static
 

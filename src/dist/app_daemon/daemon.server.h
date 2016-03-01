@@ -21,13 +21,6 @@ namespace dsn
             void on_config_proposal(const ::dsn::replication::configuration_update_request& proposal);
             
         private:
-            void on_master_connected();
-            void on_master_disconnected();
-
-            void on_add_app(const::dsn::replication::configuration_update_request& proposal);
-            void on_remove_app(const::dsn::replication::configuration_update_request& proposal);
-
-        private:
             std::unique_ptr<slave_failure_detector_with_multimaster> _fd;
             
             struct layer1_app_info
@@ -35,13 +28,38 @@ namespace dsn
                 ::dsn::replication::partition_configuration configuration;
                 dsn_handle_t app_proc_handle;
                 std::string working_dir;
+                std::string package_dir;
                 uint16_t working_port;
+
+                layer1_app_info(const ::dsn::replication::configuration_update_request & proposal)
+                {
+                    configuration = proposal.config;
+                    app_proc_handle = nullptr;
+                }
             };
 
             ::dsn::service::zrwlock_nr _lock;
-            std::unordered_map<uint64_t, std::unique_ptr<layer1_app_info>> _apps;
+            std::unordered_map<::dsn::replication::global_partition_id, std::unique_ptr<layer1_app_info>> _apps;
+            std::atomic<bool> _online;
 
             std::string _working_dir;
+            std::string _package_dir_on_daemon;
+            rpc_address _package_server;
+            std::string _package_dir_on_package_server;
+
+            task_ptr _app_check_timer;
+
+        private:
+            void on_master_connected();
+            void on_master_disconnected();
+
+            void on_add_app(const ::dsn::replication::configuration_update_request& proposal);
+            void on_remove_app(const ::dsn::replication::configuration_update_request& proposal);
+
+            error_code create_app(layer1_app_info* app);
+            error_code kill_app(layer1_app_info* app);
+
+            void check_apps();
         };
     }
 }
