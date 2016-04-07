@@ -689,6 +689,17 @@ namespace dsn { namespace replication {
 
     DEFINE_POD_SERIALIZATION(partition_status);
 
+	// ---------- raft_role -------------
+	enum raft_role
+	{
+		RR_UNKNOWN = 0,
+		RR_LEADER = 1,
+		RR_CANDIDATE = 2,
+		RR_FOLLOWER = 3,
+	};
+
+	DEFINE_POD_SERIALIZATION(raft_role);
+
     // ---------- read_semantic -------------
     enum read_semantic
     {

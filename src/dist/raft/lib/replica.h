@@ -53,6 +53,8 @@ namespace dsn { namespace replication {
 class replication_app_base;
 class replica_stub;
 class replication_checker;
+class raft;
+
 namespace test {
     class test_checker;
 }
@@ -242,6 +244,9 @@ private:
 
     // perf counters
     perf_counter_               _counter_commit_latency;
+
+	//raft
+	raft* _raft;
 };
 
 }} // namespace

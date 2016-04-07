@@ -112,6 +112,15 @@ void replica::on_config_proposal(configuration_update_request& proposal)
 
 void replica::assign_primary(configuration_update_request& proposal)
 {
+	// meta server assigns primary if the app does not exist
+	// otherwise raft takes over for leader election
+	if (proposal.config.max_replica_count > 0)
+	{
+		ddebug("%s: skill this assign primary call",
+			name());
+		return;
+	}
+
     dassert(proposal.node == _stub->_primary_address, "");
 
     if (status() == PS_PRIMARY)
