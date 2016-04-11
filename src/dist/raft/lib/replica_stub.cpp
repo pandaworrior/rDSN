@@ -40,6 +40,7 @@
 #include "mutation.h"
 #include <dsn/cpp/json_helper.h>
 #include "replication_app_base.h"
+#include "raft.h"
 
 # ifdef __TITLE__
 # undef __TITLE__
@@ -634,6 +635,46 @@ void replica_stub::on_copy_checkpoint(const replica_configuration& request, /*ou
     {
         response.err = ERR_OBJECT_NOT_FOUND;
     }
+}
+
+// reacts when receiving raft update membership
+void replica_stub::on_raft_update_membership(dsn_message_t request)
+{
+	// unmarshall the data and update raft locally
+	raft_membership_update_request r_mem_update_request;
+	::unmarshall(request, r_mem_update_request);
+	ddebug("received an raft mem update msg");
+
+	replica_ptr rep = get_replica(r_mem_update_request.gpid);
+	if (rep != nullptr)
+	{
+		rep->on_raft_update_membership(request, r_mem_update_request);
+	}
+	else
+	{
+		raft_membership_update_response response;
+		response.err = ERR_OBJECT_NOT_FOUND;
+		reply(request, response);
+	}
+}
+
+void replica_stub::on_raft_vote_request(dsn_message_t request)
+{
+	raft_vote_request rv_request;
+	::unmarshall(request, rv_request);
+	ddebug("receive vote request from a candidate");
+
+	replica_ptr rep = get_replica(rv_request.gpid);
+	if (rep != nullptr)
+	{
+		rep->on_raft_vote_request(request, rv_request);
+	}
+	else
+	{
+		raft_vote_response response;
+		response.err = ERR_OBJECT_NOT_FOUND;
+		reply(request, response);
+	}
 }
 
 void replica_stub::on_learn_completion_notification(const group_check_response& report)
@@ -1262,6 +1303,10 @@ void replica_stub::open_service()
     register_rpc_handler(RPC_QUERY_PN_DECREE, "query_decree", &replica_stub::on_query_decree);
     register_rpc_handler(RPC_QUERY_REPLICA_INFO, "query_replica_info", &replica_stub::on_query_replica_info);
     register_rpc_handler(RPC_REPLICA_COPY_LAST_CHECKPOINT, "copy_checkpoint", &replica_stub::on_copy_checkpoint);
+
+	//////////////////////// for raft /////////////////////////////////
+	register_rpc_handler(RPC_RAFT_LEADER_UPDATE_MEM, "raft_update_mem", &replica_stub::on_raft_update_membership);
+	register_rpc_handler(RPC_RAFT_VOTE_REQUEST, "raft_vote_request", &replica_stub::on_raft_vote_request);
 
     _cli_replica_stub_json_state_handle = dsn_cli_app_register("info", "get the info of replica_stub on this node", "",
         this, &static_replica_stub_json_state, &static_replica_stub_json_state_freer);

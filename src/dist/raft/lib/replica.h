@@ -54,6 +54,8 @@ class replication_app_base;
 class replica_stub;
 class replication_checker;
 class raft;
+struct raft_membership_update_request;
+struct raft_vote_request;
 
 namespace test {
     class test_checker;
@@ -134,6 +136,12 @@ public:
 
     void json_state(std::stringstream& out) const;
     void update_commit_statistics(int count);
+
+	// required by raft
+	// get the group check interval and use it as the heartbeat sending interval
+	uint32_t get_group_check_interval_ms();
+	void on_raft_update_membership(dsn_message_t msg, const raft_membership_update_request& request);
+	void on_raft_vote_request(dsn_message_t msg, const raft_vote_request& request);
         
 private:
     // common helpers
@@ -207,6 +215,28 @@ private:
     void on_checkpoint_completed(error_code err);
     void on_copy_checkpoint_ack(error_code err, const std::shared_ptr<replica_configuration>& req, const std::shared_ptr<learn_response>& resp);
     void on_copy_checkpoint_file_completed(error_code err, size_t sz, std::shared_ptr<learn_response> resp, const std::string &chk_dir);
+
+	// raft wrappers
+	// monitor heartbeat and trigger leader election if necessary
+	void monitor_heartbeat();
+	void init_raft_heartbeat_monitor_on_follower();
+	void disable_raft_heartbeat_monitor_task();
+
+	void init_raft_leader_election_on_candidate();
+	void disable_raft_leader_election_task();
+
+	// when new leader is elected, then it updates its own
+	// or when new membership message received, then the follower must update
+	void reset_raft_membership(partition_configuration& new_mem);
+	void install_raft_membership_on_other_replicas();
+	void send_raft_membership_update_message(::dsn::rpc_address addr, int timeout_milliseconds);
+	//process the response from the followers
+	void on_raft_update_membership_reply(error_code err, dsn_message_t request, dsn_message_t response);
+	void change_raft_role_to_leader();
+	void change_raft_role_to_follower();
+	void send_raft_vote_request_message(::dsn::rpc_address addr, ballot n_ballot, int timeout_milliseconds);
+	void on_raft_vote_reply(error_code err, dsn_message_t request, dsn_message_t response);
+	void change_raft_role_to_candidate();
 
 private:
     friend class ::dsn::replication::replication_checker;

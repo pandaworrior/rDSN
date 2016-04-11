@@ -39,6 +39,7 @@
 #include "replica_stub.h"
 #include <dsn/cpp/json_helper.h>
 #include "replication_app_base.h"
+#include "raft.h"
 
 # ifdef __TITLE__
 # undef __TITLE__
@@ -57,6 +58,8 @@ replica::replica(replica_stub* stub, global_partition_id gpid, const char* app_t
     _dir = dir;
     sprintf(_name, "%u.%u@%s", gpid.app_id, gpid.pidx, stub->_primary_address.to_string());
     _options = &stub->options();
+
+	_raft = new raft(this, get_group_check_interval_ms(), 500, 1500);
     init_state();
     _config.gpid = gpid;
 

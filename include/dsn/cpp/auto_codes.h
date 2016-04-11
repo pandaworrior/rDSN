@@ -414,6 +414,11 @@ namespace dsn
     DEFINE_ERR_CODE(ERR_BUSY_CREATING)
     DEFINE_ERR_CODE(ERR_BUSY_DROPPING)
 
+
+	/////////// for raft ////////////
+	DEFINE_ERR_CODE(ERR_INVALID_BALLOT)
+
+
 /*@}*/
 } // end namespace
 

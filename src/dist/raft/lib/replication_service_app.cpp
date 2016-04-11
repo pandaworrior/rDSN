@@ -43,7 +43,7 @@
 # endif
 # define __TITLE__ "replica.service_app"
 
-# ifdef DSN_REPLICATION_TYPE_1_DYNAMIC_LIB
+# ifdef DSN_REPLICATION_TYPE_2_DYNAMIC_LIB
 
 # include <dsn/internal/module_init.cpp.h>
 

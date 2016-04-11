@@ -38,6 +38,7 @@
 #include "mutation_log.h"
 #include "replica_stub.h"
 #include "replication_app_base.h"
+#include "raft.h"
 
 # ifdef __TITLE__
 # undef __TITLE__
@@ -45,6 +46,11 @@
 # define __TITLE__ "replica.check"
 
 namespace dsn { namespace replication {
+
+	uint32_t replica::get_group_check_interval_ms()
+	{
+		return (uint32_t)_options->group_check_interval_ms;
+	}
 
 void replica::init_group_check()
 {
@@ -157,6 +163,11 @@ void replica::on_group_check(const group_check_request& request, /*out*/ group_c
         update_local_configuration(request.config, true);
     }
     
+	///////////////raft////////////////////////
+	//update the heartbeat receiving time
+	_raft->update_last_heartbeat_arrival_time_ms();
+	///////////////raft////////////////////////
+
     switch (status())
     {
     case PS_INACTIVE:

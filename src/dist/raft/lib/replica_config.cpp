@@ -114,9 +114,9 @@ void replica::assign_primary(configuration_update_request& proposal)
 {
 	// meta server assigns primary if the app does not exist
 	// otherwise raft takes over for leader election
-	if (proposal.config.max_replica_count > 0)
+	if (proposal.config.secondaries.size() > 0)
 	{
-		ddebug("%s: skill this assign primary call",
+		ddebug("%s: skip this assign primary call, since raft takes over",
 			name());
 		return;
 	}
@@ -470,6 +470,13 @@ void replica::on_update_configuration_on_meta_server_reply(error_code err, dsn_m
     }
     
     update_configuration(resp.config);
+
+	// only the leader will receive this message
+	// perform the raft leader tasks
+	// TODO: perhaps, need to do this before update_configuration
+	//////////raft//////////
+	change_raft_role_to_leader();
+	//////////raft//////////
     _primary_states.reconfiguration_task = nullptr;
 }
 
@@ -646,7 +653,7 @@ bool replica::update_local_configuration(const replica_configuration& config, bo
         switch (config.status)
         {
         case PS_PRIMARY:
-            init_group_check();            
+            init_group_check();
             replay_prepare_list();
             break;
         case PS_SECONDARY:

@@ -106,6 +106,10 @@ public:
     void on_group_check(const group_check_request& request, /*out*/ group_check_response& response);
     void on_copy_checkpoint(const replica_configuration& request, /*out*/ learn_response& response);
 
+	// for raft
+
+	void on_raft_update_membership(dsn_message_t request);
+	void on_raft_vote_request(dsn_message_t request);
     //
     //    local messages
     //
