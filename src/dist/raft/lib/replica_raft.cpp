@@ -78,6 +78,8 @@ namespace dsn {
 				uint64_t current_timestamp_milliseconds = dsn_now_ms();
 				if (_raft->not_receiving_heartbeat_in_valid_timeout(current_timestamp_milliseconds))
 				{
+					ddebug("%s: is a follower but has not received heartbeat in a given interval, please starts leader election",
+						name());
 					//change role to candidate
 					change_raft_role_to_candidate();
 				}
@@ -195,7 +197,7 @@ namespace dsn {
 			uint32_t timeout = _raft->get_new_leader_election_timeout_ms();
 
 			//get a new ballot number
-			ballot new_ballot = _raft->get_and_increment_raft_ballot();
+			ballot new_ballot = _raft->increment_and_get_raft_ballot();
 
 			//clean up the vote set
 			_raft->_vote_set.clear();

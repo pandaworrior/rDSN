@@ -47,9 +47,6 @@ namespace dsn{
 
 		raft::~raft()
 		{
-			//destroy all locks
-			dsn_rwlock_nr_destroy(_rw_lock_raft_role);
-			dsn_rwlock_nr_destroy(_rw_lock_last_heartbeat_arrival_time);
 		}
 
 		void raft::raft_init(replica* _r, uint32_t hb_timeout, uint32_t min_le_timeout, uint32_t max_le_timeout)
@@ -66,10 +63,6 @@ namespace dsn{
 			update_last_heartbeat_arrival_time_ms(true);
 			set_leader_election_timeout_ms();
 
-			//initialize the locks for protecting shared variables
-			_rw_lock_raft_role = dsn_rwlock_nr_create();
-			_rw_lock_last_heartbeat_arrival_time = dsn_rwlock_nr_create();
-
 			zero_mem_ballot();
 
 			change_raft_role(RR_UNKNOWN);
@@ -85,13 +78,9 @@ namespace dsn{
 			_heartbeat_timeout_milliseconds = hb_timeout;
 		}
 
-		uint32_t raft::get_last_heartbeat_arrival_time_ms()
+		uint64_t raft::get_last_heartbeat_arrival_time_ms()
 		{
-			uint32_t r_value = 0;
-			dsn_rwlock_nr_lock_read(_rw_lock_last_heartbeat_arrival_time);
-			r_value = _last_heartbeat_arrival_time_milliseconds;
-			dsn_rwlock_nr_unlock_read(_rw_lock_last_heartbeat_arrival_time);
-			return r_value;
+			return _last_heartbeat_arrival_time_milliseconds;
 		}
 
 		void raft::update_last_heartbeat_arrival_time_ms(bool initial)
@@ -103,10 +92,7 @@ namespace dsn{
 				return;
 			}
 
-			//acquire write lock
-			dsn_rwlock_nr_lock_write(_rw_lock_last_heartbeat_arrival_time);
-			_last_heartbeat_arrival_time_milliseconds = (uint32_t) dsn_now_ms();
-			dsn_rwlock_nr_unlock_write(_rw_lock_last_heartbeat_arrival_time);
+			_last_heartbeat_arrival_time_milliseconds = dsn_now_ms();
 
 			ddebug(
 				"heartbeat msg received at %d",
@@ -166,20 +152,12 @@ namespace dsn{
 
 		void raft::change_raft_role(raft_role rr)
 		{
-			//acquire write lock
-			dsn_rwlock_nr_lock_write(_rw_lock_raft_role);
 			_r_role = rr;
-			dsn_rwlock_nr_unlock_write(_rw_lock_raft_role);
 		}
 
 		raft_role raft::get_raft_role()
 		{
-			raft_role return_value = RR_UNKNOWN;
-			//acquire read lock
-			dsn_rwlock_nr_lock_read(_rw_lock_raft_role);
-			return_value = _r_role;
-			dsn_rwlock_nr_unlock_read(_rw_lock_raft_role);
-			return return_value;
+			return _r_role;
 		}
 
 		uint32_t raft::get_raft_majority_num()

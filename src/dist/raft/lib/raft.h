@@ -144,8 +144,8 @@ namespace dsn {
 			// get raft membership
 			partition_configuration get_raft_membership();
 
-			// get and increment a new ballot number
-			ballot get_and_increment_raft_ballot() { return (++(_membership.ballot)); };
+			// increment and get a new ballot number
+			ballot increment_and_get_raft_ballot() { return (++(_membership.ballot)); };
 
 			ballot get_ballot() { return _membership.ballot; };
 
@@ -163,13 +163,18 @@ namespace dsn {
 
 			uint32_t get_raft_majority_num();
 
+			// when the replica first initialized either by meta server via assign primary
+			// or by assign secondary, flag it
+			bool is_initialized_by_meta_server() { return _initialized; };
+			void set_initialized_by_meta_server() { _initialized = true; };
+
 		private:
 			//initialize raft
 			void raft_init(replica* _r, uint32_t hb_timeout, uint32_t min_le_timeout, uint32_t max_le_timeout);
 			//set time interval for sending a heartbeat to all followers
 			void set_heartbeat_timeout_ms(uint32_t hb_timeout);
 			//get the time of the most recent heartbeat message arrival
-			uint32_t get_last_heartbeat_arrival_time_ms();
+			uint64_t get_last_heartbeat_arrival_time_ms();
 
 			// membership
 			void zero_mem_ballot();
@@ -202,21 +207,19 @@ namespace dsn {
 
 			// LEADER or FOLLOWER or CANDIDATE
 			raft_role _r_role;
-			// lock for protecting raft_role
-			dsn_handle_t _rw_lock_raft_role;
 
 			//heartbeat
 			uint32_t _heartbeat_timeout_milliseconds;
 			//last heartbeat receiving time will be updated when receiving heartbeat msg or prepare and commit message from the legal leader
-			uint32_t _last_heartbeat_arrival_time_milliseconds;
-			// lock for protecting the last heartbeat receiving time 
-			dsn_handle_t _rw_lock_last_heartbeat_arrival_time;
+			uint64_t _last_heartbeat_arrival_time_milliseconds;
 
 
 			//leader election
 			uint32_t _min_leader_election_timeout_milliseconds;
 			uint32_t _max_leader_election_timeout_milliseconds;
 			uint32_t _leader_election_timeout_milliseconds;
+
+			bool _initialized;
 		};
 	}
 }

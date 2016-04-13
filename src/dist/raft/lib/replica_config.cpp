@@ -468,15 +468,8 @@ void replica::on_update_configuration_on_meta_server_reply(error_code err, dsn_m
             dassert (false, "");
         }
     }
-    
-    update_configuration(resp.config);
 
-	// only the leader will receive this message
-	// perform the raft leader tasks
-	// TODO: perhaps, need to do this before update_configuration
-	//////////raft//////////
-	change_raft_role_to_leader();
-	//////////raft//////////
+    update_configuration(resp.config);
     _primary_states.reconfiguration_task = nullptr;
 }
 
