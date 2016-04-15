@@ -682,23 +682,13 @@ namespace dsn { namespace replication {
         PS_INVALID = 0,
         PS_INACTIVE = 1,
         PS_ERROR = 2,
-        PS_PRIMARY = 3,
-        PS_SECONDARY = 4,
+        PS_PRIMARY = 3,           // corresponds to raft leader
+        PS_SECONDARY = 4,         // corresponds to raft follower
         PS_POTENTIAL_SECONDARY = 5,
+		PS_POTENTIAL_PRIMARY = 6, // corresponds to raft candidate
     };
 
     DEFINE_POD_SERIALIZATION(partition_status);
-
-	// ---------- raft_role -------------
-	enum raft_role
-	{
-		RR_UNKNOWN = 0,
-		RR_LEADER = 1,
-		RR_CANDIDATE = 2,
-		RR_FOLLOWER = 3,
-	};
-
-	DEFINE_POD_SERIALIZATION(raft_role);
 
     // ---------- read_semantic -------------
     enum read_semantic
@@ -747,6 +737,7 @@ namespace dsn { namespace replication {
         CT_DOWNGRADE_TO_INACTIVE = 6,
         CT_REMOVE = 7,
         CT_ADD_SECONDARY_FOR_LB = 8,
+		CT_RAFT_ASSIGN_PRIMARY = 9, //added by raft
     };
 
     DEFINE_POD_SERIALIZATION(config_type);

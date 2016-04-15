@@ -139,6 +139,8 @@ public:
 
 	// required by raft
 	// get the group check interval and use it as the heartbeat sending interval
+	ballot increment_and_get_ballot() { return ++(_config.ballot); };
+	void update_ballot(ballot n_ballot) { _config.ballot = n_ballot; };
 	uint32_t get_group_check_interval_ms();
 	void on_raft_update_membership(dsn_message_t msg, const raft_membership_update_request& request);
 	void on_raft_vote_request(dsn_message_t msg, const raft_vote_request& request);
@@ -227,8 +229,7 @@ private:
 
 	// when new leader is elected, then it updates its own
 	// or when new membership message received, then the follower must update
-	void reset_raft_membership(partition_configuration& new_mem);
-	void install_raft_membership_on_other_replicas();
+	void install_raft_membership_on_replicas();
 	void send_raft_membership_update_message(::dsn::rpc_address addr, int timeout_milliseconds);
 	//process the response from the followers
 	void on_raft_update_membership_reply(error_code err, dsn_message_t request, dsn_message_t response);
@@ -237,6 +238,9 @@ private:
 	void send_raft_vote_request_message(::dsn::rpc_address addr, ballot n_ballot, int timeout_milliseconds);
 	void on_raft_vote_reply(error_code err, dsn_message_t request, dsn_message_t response);
 	void change_raft_role_to_candidate();
+
+	void upgrade_to_primary_by_raft();
+	void assign_primary_called_by_raft(configuration_update_request& proposal);
 
 private:
     friend class ::dsn::replication::replication_checker;

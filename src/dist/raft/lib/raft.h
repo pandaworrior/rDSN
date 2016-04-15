@@ -43,21 +43,21 @@ namespace dsn {
 		struct raft_membership_update_request
 		{
 			global_partition_id gpid;
-			::dsn::error_code err;
-			partition_configuration mem;
+			ballot my_ballot;
+			std::vector<dsn::rpc_address> mem;
 		};
 
 		inline void marshall(::dsn::binary_writer& writer, const raft_membership_update_request& val)
 		{
 			marshall(writer, val.gpid);
-			marshall(writer, val.err);
+			marshall(writer, val.my_ballot);
 			marshall(writer, val.mem);
 		}
 
 		inline void unmarshall(::dsn::binary_reader& reader, /*out*/ raft_membership_update_request& val)
 		{
 			unmarshall(reader, val.gpid);
-			unmarshall(reader, val.err);
+			unmarshall(reader, val.my_ballot);
 			unmarshall(reader, val.mem);
 		}
 
@@ -139,34 +139,28 @@ namespace dsn {
 			bool not_receiving_heartbeat_in_valid_timeout(uint64_t current_ts_ms);
 
 			// maintain raft membership
-			void reset_raft_membership(partition_configuration& new_mem);
+			void reset_raft_membership_on_leader(partition_configuration& new_mem);
+
+			void reset_raft_membership_on_follower(std::vector<dsn::rpc_address> nodes);
 
 			// get raft membership
-			partition_configuration get_raft_membership();
+			std::vector<rpc_address> get_raft_membership();
 
 			// increment and get a new ballot number
-			ballot increment_and_get_raft_ballot() { return (++(_membership.ballot)); };
+			ballot increment_and_get_raft_ballot();
 
-			ballot get_ballot() { return _membership.ballot; };
+			ballot get_ballot();
 
-			void update_ballot(ballot n_ballot) { _membership.ballot = n_ballot; };
+			void update_ballot(ballot n_ballot);
 
-			std::set<dsn::rpc_address> get_peers_address(const dsn::rpc_address& my_address);
+			std::vector<dsn::rpc_address> get_peers_address(const dsn::rpc_address& my_address);
 
 			// get the raft role
-			raft_role get_raft_role();
-
-			// update raft role
-			void change_raft_role(raft_role rr);
+			partition_status get_raft_role();
 
 			uint32_t get_new_leader_election_timeout_ms();
 
 			uint32_t get_raft_majority_num();
-
-			// when the replica first initialized either by meta server via assign primary
-			// or by assign secondary, flag it
-			bool is_initialized_by_meta_server() { return _initialized; };
-			void set_initialized_by_meta_server() { _initialized = true; };
 
 		private:
 			//initialize raft
@@ -175,10 +169,6 @@ namespace dsn {
 			void set_heartbeat_timeout_ms(uint32_t hb_timeout);
 			//get the time of the most recent heartbeat message arrival
 			uint64_t get_last_heartbeat_arrival_time_ms();
-
-			// membership
-			void zero_mem_ballot();
-			
 
 			//randomly choose a timeout for leader election from a range specified by min and max
 			void set_min_leader_election_timeout_ms(uint32_t min_le_timeout);
@@ -202,11 +192,8 @@ namespace dsn {
 			//access replica information e.g. partition configuration
 			replica* _replica;
 
-			// membership mgr, including learners
-			partition_configuration _membership;
-
-			// LEADER or FOLLOWER or CANDIDATE
-			raft_role _r_role;
+			// membership
+			std::vector<rpc_address> _membership;
 
 			//heartbeat
 			uint32_t _heartbeat_timeout_milliseconds;
@@ -218,8 +205,6 @@ namespace dsn {
 			uint32_t _min_leader_election_timeout_milliseconds;
 			uint32_t _max_leader_election_timeout_milliseconds;
 			uint32_t _leader_election_timeout_milliseconds;
-
-			bool _initialized;
 		};
 	}
 }

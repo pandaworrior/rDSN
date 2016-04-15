@@ -150,6 +150,60 @@ void replica::assign_primary(configuration_update_request& proposal)
     update_configuration_on_meta_server(proposal.type, proposal.node, proposal.config);
 }
 
+
+// when new leader has been elected by raft, raft will call this function
+void replica::assign_primary_called_by_raft(configuration_update_request& proposal)
+{
+	dassert(proposal.node == _stub->_primary_address, "");
+
+	if (status() == PS_PRIMARY)
+	{
+		dwarn(
+			"%s: invalid assgin primary proposal as the node is in %s",
+			name(),
+			enum_to_string(status()));
+		return;
+	}
+
+	proposal.config.primary = _stub->_primary_address;
+	replica_helper::remove_node(_stub->_primary_address, proposal.config.secondaries);
+
+	proposal.config.last_committed_decree = last_committed_decree();
+
+	// disable 2pc during reconfiguration
+	// it is possible to do this only for CT_DOWNGRADE_TO_SECONDARY,
+	// but we choose to disable 2pc during all reconfiguration types
+	// for simplicity at the cost of certain write throughput
+	update_local_configuration_with_no_ballot_change(PS_INACTIVE);
+	set_inactive_state_transient(true);
+
+	dsn_message_t msg = dsn_msg_create_request(RPC_CM_UPDATE_PARTITION_CONFIGURATION, 0, 0);
+
+	std::shared_ptr<configuration_update_request> request(new configuration_update_request);
+	request->config = proposal.config;
+	request->type = proposal.type;
+	request->node = proposal.node;
+
+	::marshall(msg, *request);
+
+	if (nullptr != _primary_states.reconfiguration_task)
+	{
+		_primary_states.reconfiguration_task->cancel(true);
+	}
+
+	rpc_address target(_stub->_failure_detector->get_servers());
+	_primary_states.reconfiguration_task = rpc::call(
+		target,
+		msg,
+		this,
+		[=](error_code err, dsn_message_t reqmsg, dsn_message_t response)
+		{
+			on_update_configuration_on_meta_server_reply(err, reqmsg, response, request);
+		},
+		gpid_to_hash(get_gpid())
+	);
+}
+
 // run on primary to send ADD_LEARNER request to candidate replica server
 void replica::add_potential_secondary(configuration_update_request& proposal)
 {
@@ -625,28 +679,53 @@ bool replica::update_local_configuration(const replica_configuration& config, bo
         switch (config.status)
         {
         case PS_PRIMARY:
+			change_raft_role_to_leader();
             replay_prepare_list();
             break;
         case PS_INACTIVE:
             _primary_states.cleanup(old_ballot != config.ballot);
             break;
         case PS_SECONDARY:
+			change_raft_role_to_follower();
         case PS_ERROR:
             _primary_states.cleanup(true);
             break;
         case PS_POTENTIAL_SECONDARY:
             dassert (false, "invalid execution path");
             break;
+		case PS_POTENTIAL_PRIMARY: // transition from raft leader to raft candidate
+			dassert(false, "invalid execution path");
+			break;
         default:
             dassert (false, "invalid execution path");
         }        
         break;
+	case PS_POTENTIAL_PRIMARY:
+		cleanup_preparing_mutations(false);
+		switch (config.status)
+		{
+		case PS_PRIMARY: // elect as a raft leader
+			init_group_check();
+			change_raft_role_to_leader();
+			replay_prepare_list();
+			break;
+		case PS_SECONDARY: // transition from candidate to follower
+			change_raft_role_to_follower();
+			break;
+		case PS_POTENTIAL_PRIMARY:
+		case PS_POTENTIAL_SECONDARY:
+		case PS_INACTIVE: 
+		default:
+			dassert(false, "invalid execution path");
+		}
+		break;
     case PS_SECONDARY:
         cleanup_preparing_mutations(false);
         switch (config.status)
         {
         case PS_PRIMARY:
             init_group_check();
+			change_raft_role_to_leader();
             replay_prepare_list();
             break;
         case PS_SECONDARY:
@@ -661,6 +740,9 @@ bool replica::update_local_configuration(const replica_configuration& config, bo
         case PS_ERROR:
             // _secondary_states.cleanup(true); => do it in close as it may block
             break;
+		case PS_POTENTIAL_PRIMARY: // transition from raft follower to raft candidate
+			change_raft_role_to_candidate();
+			break;
         default:
             dassert (false, "invalid execution path");
         }
@@ -679,6 +761,7 @@ bool replica::update_local_configuration(const replica_configuration& config, bo
             dassert(r, "%s: potential secondary context cleanup failed", name());
 
             check_state_completeness();
+			change_raft_role_to_follower();
             break;
         case PS_POTENTIAL_SECONDARY:
             break;
@@ -691,6 +774,9 @@ bool replica::update_local_configuration(const replica_configuration& config, bo
             // r = _potential_secondary_states.cleanup(true);
             // dassert(r, "%s: potential secondary context cleanup failed", name());
             break;
+		case PS_POTENTIAL_PRIMARY: // transition from potential secondary to raft candidate (not possible)
+			dassert(false, "invalid execution path");
+			break;
         default:
             dassert (false, "invalid execution path");
         }
@@ -702,10 +788,12 @@ bool replica::update_local_configuration(const replica_configuration& config, bo
             dassert (_inactive_is_transient, "must be in transient state for being primary next");
             _inactive_is_transient = false;
             init_group_check();
+			change_raft_role_to_leader();
             replay_prepare_list();
             break;
         case PS_SECONDARY:
             dassert(_inactive_is_transient, "must be in transient state for being secondary next");
+			change_raft_role_to_follower();
             _inactive_is_transient = false;
             break;
         case PS_POTENTIAL_SECONDARY:
@@ -727,6 +815,9 @@ bool replica::update_local_configuration(const replica_configuration& config, bo
             }
             _inactive_is_transient = false;
             break;
+		case PS_POTENTIAL_PRIMARY: // transition from inactive to raft candidate (not possible, it must transition to secondary first)
+			dassert(false, "invalid execution path");
+			break;
         default:
             dassert (false, "invalid execution path");
         }
@@ -748,6 +839,9 @@ bool replica::update_local_configuration(const replica_configuration& config, bo
             break;
         case PS_ERROR:
             break;
+		case PS_POTENTIAL_PRIMARY: // transition from error to raft candidate (not possible)
+			dassert(false, "invalid execution path");
+			break;
         default:
             dassert (false, "invalid execution path");
         }

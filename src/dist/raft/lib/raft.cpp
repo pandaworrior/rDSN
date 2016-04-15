@@ -62,15 +62,6 @@ namespace dsn{
 			set_max_leader_election_timeout_ms(max_le_timeout);
 			update_last_heartbeat_arrival_time_ms(true);
 			set_leader_election_timeout_ms();
-
-			zero_mem_ballot();
-
-			change_raft_role(RR_UNKNOWN);
-		}
-
-		void raft::zero_mem_ballot()
-		{
-			_membership.ballot = -1;
 		}
 
 		void raft::set_heartbeat_timeout_ms(uint32_t hb_timeout)
@@ -122,54 +113,67 @@ namespace dsn{
 			return _leader_election_timeout_milliseconds;
 		}
 
-		void raft::reset_raft_membership(partition_configuration& new_mem)
+		void raft::reset_raft_membership_on_leader(partition_configuration& new_mem)
 		{
-			_membership = new_mem;
+			_membership.clear();
+
+			_membership.push_back(new_mem.primary);
+
+			for (auto it = new_mem.secondaries.begin(); it != new_mem.secondaries.end(); ++it)
+			{
+				_membership.push_back(*it);
+			}
 		}
 
-		partition_configuration raft::get_raft_membership()
+		void raft::reset_raft_membership_on_follower(std::vector<dsn::rpc_address> nodes)
+		{
+			_membership = nodes;
+		}
+
+		std::vector<dsn::rpc_address> raft::get_raft_membership()
 		{
 			return _membership;
 		}
 
-		std::set<dsn::rpc_address> raft::get_peers_address(const dsn::rpc_address& my_address)
-		{
-			std::set<dsn::rpc_address> nodes;
-			if (_membership.primary != my_address)
-			{
-				nodes.insert(_membership.primary);
-			}
+		ballot raft::increment_and_get_raft_ballot() 
+		{ 
+			return _replica->increment_and_get_ballot(); 
+		}
 
-			for (auto it = _membership.secondaries.begin(); it != _membership.secondaries.end(); ++it)
+		ballot raft::get_ballot() 
+		{ 
+			return _replica->get_ballot(); 
+		}
+
+		std::vector<dsn::rpc_address> raft::get_peers_address(const dsn::rpc_address& my_address)
+		{
+			std::vector<dsn::rpc_address> nodes;
+
+			for (auto it = _membership.begin(); it != _membership.end(); ++it)
 			{
 				if ((*it) != my_address)
 				{
-					nodes.insert(*it);
+					nodes.push_back(*it);
 				}
 			}
 			return nodes;
 		}
 
-		void raft::change_raft_role(raft_role rr)
+		partition_status raft::get_raft_role()
 		{
-			_r_role = rr;
-		}
-
-		raft_role raft::get_raft_role()
-		{
-			return _r_role;
+			return _replica->status();
 		}
 
 		uint32_t raft::get_raft_majority_num()
 		{
 			uint32_t majority = 0;
-			if (_membership.secondaries.size() == 0)
+			if (_membership.size() == 0)
 			{
-				derror("it must contain some secondaries");
+				derror("it must contain at least one node");
 			}
 			else
 			{
-				majority = ((1 + _membership.secondaries.size()) / 2) + 1;
+				majority = (_membership.size() / 2) + 1;
 			}
 			return majority;
 		}
@@ -181,6 +185,13 @@ namespace dsn{
 				return true;
 			}
 			return false;
+		}
+
+		void raft::update_ballot(ballot n_ballot)
+		{
+			dassert(get_ballot() < n_ballot, "invalid raft ballot input");
+
+			_replica->update_ballot(n_ballot);
 		}
 	}
 }

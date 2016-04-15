@@ -48,7 +48,7 @@ namespace dsn {
 		{
 			dassert(_raft->_heartbeat_monitor_task != nullptr, "");
 
-			if (_raft->get_raft_role() != RR_FOLLOWER)
+			if (_raft->get_raft_role() != PS_SECONDARY)
 				return;
 
 			//only follower need to kick off this process
@@ -71,8 +71,8 @@ namespace dsn {
 				name()
 				);
 
-			raft_role current_role_status = _raft->get_raft_role();
-			if (current_role_status == RR_FOLLOWER)
+			partition_status current_role_status = _raft->get_raft_role();
+			if (current_role_status == PS_SECONDARY)
 			{
 				//get current time stamp and compare against the last heartbeat receiving time
 				uint64_t current_timestamp_milliseconds = dsn_now_ms();
@@ -80,8 +80,9 @@ namespace dsn {
 				{
 					ddebug("%s: is a follower but has not received heartbeat in a given interval, please starts leader election",
 						name());
-					//change role to candidate
-					change_raft_role_to_candidate();
+					// change role to candidate
+					// call the update_local_configuration
+					update_local_configuration_with_no_ballot_change(PS_POTENTIAL_PRIMARY);
 				}
 			}
 		}
@@ -102,23 +103,21 @@ namespace dsn {
 				name());
 		}
 
-		void replica::reset_raft_membership(partition_configuration& new_mem)
-		{
-			_raft->reset_raft_membership(new_mem);
-		}
-
-		void replica::install_raft_membership_on_other_replicas()
+		void replica::install_raft_membership_on_replicas()
 		{
 			// pacificA piggybacks a replica config to all secondaries, which only
 			// specifies the primary address, however, raft requires every replica
 			// to the overall membership setting. Therefore, we send a rpc to the 
 			// remote peers to let them know the overall membership
 
+			//reset raft membership on leader
+			_raft->reset_raft_membership_on_leader(_primary_states.membership);
+
 			// get membership from raft
-			partition_configuration raft_mem = _raft->get_raft_membership();
+			std::vector<dsn::rpc_address> raft_mem = _raft->get_raft_membership();
 
 			// send to all secondaries a message must reply I think
-			for (auto it = raft_mem.secondaries.begin(); it != raft_mem.secondaries.end(); ++it)
+			for (auto it = raft_mem.begin(); it != raft_mem.end(); ++it)
 			{
 				send_raft_membership_update_message(*it, _options->prepare_timeout_ms_for_secondaries);
 			}
@@ -134,7 +133,7 @@ namespace dsn {
 			dsn_message_t msg = dsn_msg_create_request(RPC_RAFT_LEADER_UPDATE_MEM, timeout_milliseconds, gpid_to_hash(get_gpid()));
 			raft_membership_update_request r_mem_update_request;
 			r_mem_update_request.gpid = get_gpid();
-			r_mem_update_request.mem = _raft->get_raft_membership();
+			r_mem_update_request.mem = std::vector<dsn::rpc_address>(_raft->get_raft_membership().begin(), _raft->get_raft_membership().end());
 			::marshall(msg, r_mem_update_request);
 			
 			rpc::call(
@@ -151,18 +150,15 @@ namespace dsn {
 		void replica::on_raft_update_membership(dsn_message_t msg, const raft_membership_update_request& request)
 		{
 			ddebug("received a request from other peers to update my raft membership");
-			// get the local raft membership, compare the ballot number
-			partition_configuration old_config = _raft->get_raft_membership();
 			raft_membership_update_response response;
 
-			if (old_config.ballot >= request.mem.ballot)
+			if (_raft->get_ballot() >= request.my_ballot)
 			{	
 				response.err = ERR_INVALID_BALLOT;
 			}
 			else
 			{
-				partition_configuration new_mem(request.mem);
-				reset_raft_membership(new_mem);
+				_raft->reset_raft_membership_on_follower(request.mem);
 				response.err = ERR_OK;
 
 				// do we need to update the replica_stub partition_config as well?
@@ -186,8 +182,8 @@ namespace dsn {
 				CLEANUP_TASK_ALWAYS(_raft->_leader_election_task);
 			}
 
-			raft_role rr = _raft->get_raft_role();
-			if (rr != RR_CANDIDATE)
+			partition_status rr = _raft->get_raft_role();
+			if (rr != PS_POTENTIAL_PRIMARY)
 			{
 				ddebug("no need to perform this task");
 				return;
@@ -205,7 +201,14 @@ namespace dsn {
 			_raft->_vote_set.insert(_stub->_primary_address);
 
 			//get all nodes excluding itself
-			std::set<dsn::rpc_address> peers = _raft->get_peers_address(_stub->_primary_address);
+			std::vector<dsn::rpc_address> peers = _raft->get_peers_address(_stub->_primary_address);
+
+			if (peers.size() == 0)
+			{
+				//elect itself as the leader
+				upgrade_to_primary_by_raft();
+				return;
+			}
 
 			for (auto it = peers.begin(); it != peers.end(); ++it)
 			{
@@ -288,13 +291,20 @@ namespace dsn {
 			{
 				if (rv_resp.my_ballot > old_ballot)
 				{
-					_raft->update_ballot(rv_resp.my_ballot);
-					change_raft_role_to_follower();
+					//change_raft_role_to_follower();
+					// call update local configuration
+					// if the old is secondary or potential, no need to change
+					// if the old is primary, must change it to secondary
+					// if the old is candidate, must change it to secondary
+					replica_configuration new_config = _config;
+					new_config.ballot = rv_resp.my_ballot;
+					new_config.status = PS_SECONDARY;
+					update_local_configuration(new_config, false);
 				}
 				else
 				{
-					raft_role r_role = _raft->get_raft_role();
-					if (r_role == RR_CANDIDATE)
+					partition_status r_role = _raft->get_raft_role();
+					if (r_role == PS_POTENTIAL_PRIMARY)
 					{
 						if (rv_resp.decision)
 						{
@@ -302,7 +312,8 @@ namespace dsn {
 							if (_raft->_vote_set.size() >= _raft->get_raft_majority_num())
 							{
 								ddebug("%s: receives a majority number of vote replies, ready to be leader");
-								change_raft_role_to_leader();
+								// upgrade to primary via calling the legacy function
+								upgrade_to_primary_by_raft();
 							}
 						}
 					}
@@ -310,25 +321,37 @@ namespace dsn {
 			}
 		}
 
+		void replica::upgrade_to_primary_by_raft()
+		{
+			configuration_update_request cu_request;
+			cu_request.type = CT_UPGRADE_TO_PRIMARY;
+			cu_request.config.app_type = _app_type;
+			cu_request.config.gpid = get_gpid();
+			cu_request.config.max_replica_count = _raft->get_raft_membership().size();
+			cu_request.config.primary = _stub->_primary_address;
+			cu_request.config.last_committed_decree = last_committed_decree();
+			cu_request.config.secondaries = _raft->get_peers_address(_stub->_primary_address);
+			cu_request.is_stateful = true;
+			cu_request.node = _stub->_primary_address;
+			assign_primary_called_by_raft(cu_request);
+		}
+
+
 		void replica::change_raft_role_to_leader()
 		{
-			_raft->change_raft_role(RR_LEADER);
 			disable_raft_heartbeat_monitor_task();
 			disable_raft_leader_election_task();
-			reset_raft_membership(_primary_states.membership);
-			install_raft_membership_on_other_replicas();
+			install_raft_membership_on_replicas();
 		}
 
 		void replica::change_raft_role_to_follower()
 		{
-			_raft->change_raft_role(RR_FOLLOWER);
 			disable_raft_leader_election_task();
 			init_raft_heartbeat_monitor_on_follower();
 		}
 
 		void replica::change_raft_role_to_candidate()
 		{
-			_raft->change_raft_role(RR_CANDIDATE);
 			disable_raft_heartbeat_monitor_task();
 			init_raft_leader_election_on_candidate();
 		}
