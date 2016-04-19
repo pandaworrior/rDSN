@@ -1163,6 +1163,7 @@ namespace dsn { namespace replication {
     {
         global_partition_id gpid;
         ::dsn::error_code err;
+		int64_t my_ballot; //notify the old leader if I receive a higher ballot number from some leader election tasks
         int64_t last_committed_decree_in_app;
         int64_t last_committed_decree_in_prepare_list;
         learner_status learner_status_;
@@ -1174,6 +1175,7 @@ namespace dsn { namespace replication {
     {
         marshall(writer, val.gpid);
         marshall(writer, val.err);
+		marshall(writer, val.my_ballot);
         marshall(writer, val.last_committed_decree_in_app);
         marshall(writer, val.last_committed_decree_in_prepare_list);
         marshall(writer, val.learner_status_);
@@ -1185,6 +1187,7 @@ namespace dsn { namespace replication {
     {
         unmarshall(reader, val.gpid);
         unmarshall(reader, val.err);
+		unmarshall(reader, val.my_ballot);
         unmarshall(reader, val.last_committed_decree_in_app);
         unmarshall(reader, val.last_committed_decree_in_prepare_list);
         unmarshall(reader, val.learner_status_);

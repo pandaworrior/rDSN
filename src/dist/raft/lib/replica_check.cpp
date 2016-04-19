@@ -148,6 +148,7 @@ void replica::on_group_check(const group_check_request& request, /*out*/ group_c
     if (request.config.ballot < get_ballot())
     {
         response.err = ERR_VERSION_OUTDATED;
+		response.my_ballot = get_ballot();
         return;
     }
     else if (request.config.ballot > get_ballot())
@@ -190,6 +191,7 @@ void replica::on_group_check(const group_check_request& request, /*out*/ group_c
     response.gpid = get_gpid();
     response.node = _stub->_primary_address;
     response.err = ERR_OK;
+	response.my_ballot = get_ballot();
     if (status() == PS_ERROR)
     {
         response.err = ERR_INVALID_STATE;
@@ -228,7 +230,18 @@ void replica::on_group_check_reply(error_code err, const std::shared_ptr<group_c
         }
         else
         {
-            handle_remote_failure(req->config.status, req->node, resp->err);
+			if (resp->err == ERR_VERSION_OUTDATED)
+			{
+				// some other peers already set up a leader election, please convert to the raft follower
+				replica_configuration new_config = _config;
+				new_config.ballot = resp->my_ballot;
+				new_config.status = PS_SECONDARY;
+				update_local_configuration(new_config, false);
+			}
+			else
+			{
+				handle_remote_failure(req->config.status, req->node, resp->err);
+			}
         }
     }
 }

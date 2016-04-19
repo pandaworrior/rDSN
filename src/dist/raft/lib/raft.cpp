@@ -62,6 +62,12 @@ namespace dsn{
 			set_max_leader_election_timeout_ms(max_le_timeout);
 			update_last_heartbeat_arrival_time_ms(true);
 			set_leader_election_timeout_ms();
+
+			ddebug("%s: set heartbeat timeout in ms %lu",
+				_replica->name(), get_heartbeat_timeout_ms());
+			ddebug("%s: set leader election timeout in ms %lu",
+				_replica->name(), _leader_election_timeout_milliseconds);
+
 		}
 
 		void raft::set_heartbeat_timeout_ms(uint32_t hb_timeout)
@@ -79,14 +85,17 @@ namespace dsn{
 			if (initial)
 			{
 				_last_heartbeat_arrival_time_milliseconds = 0;
-				initial = false;
+				ddebug(
+					"initially set heartbeat arrival time to %llu",
+					_last_heartbeat_arrival_time_milliseconds
+					);
 				return;
 			}
 
 			_last_heartbeat_arrival_time_milliseconds = dsn_now_ms();
 
 			ddebug(
-				"heartbeat msg received at %d",
+				"heartbeat msg received at %llu",
 				_last_heartbeat_arrival_time_milliseconds
 				);
 		}
@@ -105,6 +114,9 @@ namespace dsn{
 		{
 			//randomly generate a timeout from a range
 			_leader_election_timeout_milliseconds = dsn_random32(_min_leader_election_timeout_milliseconds, _max_leader_election_timeout_milliseconds);
+
+			ddebug("%s: randomly chose a timeout %lu (ms) for leader election task",
+				_replica->name(), _leader_election_timeout_milliseconds);
 		}
 
 		uint32_t raft::get_new_leader_election_timeout_ms()

@@ -166,8 +166,6 @@ void replica::assign_primary_called_by_raft(configuration_update_request& propos
 	}
 
 	proposal.config.primary = _stub->_primary_address;
-	replica_helper::remove_node(_stub->_primary_address, proposal.config.secondaries);
-
 	proposal.config.last_committed_decree = last_committed_decree();
 
 	// disable 2pc during reconfiguration
@@ -705,16 +703,17 @@ bool replica::update_local_configuration(const replica_configuration& config, bo
 		switch (config.status)
 		{
 		case PS_PRIMARY: // elect as a raft leader
-			init_group_check();
 			change_raft_role_to_leader();
+			init_group_check();
 			replay_prepare_list();
 			break;
 		case PS_SECONDARY: // transition from candidate to follower
 			change_raft_role_to_follower();
 			break;
+		case PS_INACTIVE:
+			break;
 		case PS_POTENTIAL_PRIMARY:
 		case PS_POTENTIAL_SECONDARY:
-		case PS_INACTIVE: 
 		default:
 			dassert(false, "invalid execution path");
 		}
@@ -724,8 +723,8 @@ bool replica::update_local_configuration(const replica_configuration& config, bo
         switch (config.status)
         {
         case PS_PRIMARY:
-            init_group_check();
 			change_raft_role_to_leader();
+            init_group_check();
             replay_prepare_list();
             break;
         case PS_SECONDARY:
@@ -787,8 +786,8 @@ bool replica::update_local_configuration(const replica_configuration& config, bo
         case PS_PRIMARY:
             dassert (_inactive_is_transient, "must be in transient state for being primary next");
             _inactive_is_transient = false;
-            init_group_check();
 			change_raft_role_to_leader();
+            init_group_check();
             replay_prepare_list();
             break;
         case PS_SECONDARY:

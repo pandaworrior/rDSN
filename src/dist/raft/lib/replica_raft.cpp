@@ -46,10 +46,10 @@ namespace dsn {
 
 		void replica::init_raft_heartbeat_monitor_on_follower()
 		{
-			dassert(_raft->_heartbeat_monitor_task != nullptr, "");
+			dassert(_raft->get_raft_role() == PS_SECONDARY, "%s: raft role is %s", 
+				name(), enum_to_string(_raft->get_raft_role()));
 
-			if (_raft->get_raft_role() != PS_SECONDARY)
-				return;
+			CLEANUP_TASK_ALWAYS(_raft->_heartbeat_monitor_task);
 
 			//only follower need to kick off this process
 			//create a task to send heart
@@ -113,11 +113,11 @@ namespace dsn {
 			//reset raft membership on leader
 			_raft->reset_raft_membership_on_leader(_primary_states.membership);
 
-			// get membership from raft
-			std::vector<dsn::rpc_address> raft_mem = _raft->get_raft_membership();
+			// get all secondaries from raft
+			std::vector<dsn::rpc_address> raft_mem_seconaries = _raft->get_peers_address(_stub->_primary_address);
 
 			// send to all secondaries a message must reply I think
-			for (auto it = raft_mem.begin(); it != raft_mem.end(); ++it)
+			for (auto it = raft_mem_seconaries.begin(); it != raft_mem_seconaries.end(); ++it)
 			{
 				send_raft_membership_update_message(*it, _options->prepare_timeout_ms_for_secondaries);
 			}
@@ -133,7 +133,8 @@ namespace dsn {
 			dsn_message_t msg = dsn_msg_create_request(RPC_RAFT_LEADER_UPDATE_MEM, timeout_milliseconds, gpid_to_hash(get_gpid()));
 			raft_membership_update_request r_mem_update_request;
 			r_mem_update_request.gpid = get_gpid();
-			r_mem_update_request.mem = std::vector<dsn::rpc_address>(_raft->get_raft_membership().begin(), _raft->get_raft_membership().end());
+			r_mem_update_request.my_ballot = get_ballot();
+			r_mem_update_request.mem = _raft->get_raft_membership(); //TODO: please solve this problem
 			::marshall(msg, r_mem_update_request);
 			
 			rpc::call(
@@ -152,7 +153,8 @@ namespace dsn {
 			ddebug("received a request from other peers to update my raft membership");
 			raft_membership_update_response response;
 
-			if (_raft->get_ballot() >= request.my_ballot)
+			//TODO: problem, the request ballot most of time must be bigger
+			if (_raft->get_ballot() > request.my_ballot)
 			{	
 				response.err = ERR_INVALID_BALLOT;
 			}
@@ -255,8 +257,12 @@ namespace dsn {
 			
 			if (request.my_ballot > old_ballot)
 			{
-				_raft->update_ballot(request.my_ballot);
-				change_raft_role_to_follower();
+				//_raft->update_ballot(request.my_ballot);
+				//update the local configuration with no ballot change to Follower
+				replica_configuration new_config = _config;
+				new_config.ballot = request.my_ballot;
+				new_config.status = PS_SECONDARY;
+				update_local_configuration(new_config, false);
 				rv_resp.decision = true;
 			}
 
@@ -311,7 +317,8 @@ namespace dsn {
 							_raft->_vote_set.insert(rv_resp.my_addr);
 							if (_raft->_vote_set.size() >= _raft->get_raft_majority_num())
 							{
-								ddebug("%s: receives a majority number of vote replies, ready to be leader");
+								ddebug("%s: receives %d vote replies more than majority %d, ready to be leader",
+									name(), _raft->_vote_set.size(), _raft->get_raft_majority_num());
 								// upgrade to primary via calling the legacy function
 								upgrade_to_primary_by_raft();
 							}
@@ -339,6 +346,8 @@ namespace dsn {
 
 		void replica::change_raft_role_to_leader()
 		{
+			ddebug("%s: changed raft role to leader",
+				name());
 			disable_raft_heartbeat_monitor_task();
 			disable_raft_leader_election_task();
 			install_raft_membership_on_replicas();
@@ -346,12 +355,20 @@ namespace dsn {
 
 		void replica::change_raft_role_to_follower()
 		{
+			ddebug("%s: changed raft role to follower",
+				name());
 			disable_raft_leader_election_task();
+			///////////////raft////////////////////////
+			//update the heartbeat receiving time
+			_raft->update_last_heartbeat_arrival_time_ms();
+			///////////////raft////////////////////////
 			init_raft_heartbeat_monitor_on_follower();
 		}
 
 		void replica::change_raft_role_to_candidate()
 		{
+			ddebug("%s: changed raft role to candidate",
+				name());
 			disable_raft_heartbeat_monitor_task();
 			init_raft_leader_election_on_candidate();
 		}

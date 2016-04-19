@@ -78,6 +78,7 @@ namespace dsn {
             ENUM_REG(PS_PRIMARY)
             ENUM_REG(PS_SECONDARY)
             ENUM_REG(PS_POTENTIAL_SECONDARY)
+			ENUM_REG(PS_POTENTIAL_PRIMARY)
         ENUM_END(partition_status)
 
         ENUM_BEGIN(read_semantic, ReadInvalid)
