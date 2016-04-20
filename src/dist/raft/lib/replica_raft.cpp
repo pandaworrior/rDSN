@@ -157,12 +157,12 @@ namespace dsn {
 			if (_raft->get_ballot() > request.my_ballot)
 			{	
 				response.err = ERR_INVALID_BALLOT;
+				response.my_ballot = get_ballot();
 			}
 			else
 			{
 				_raft->reset_raft_membership_on_follower(request.mem);
 				response.err = ERR_OK;
-
 				// do we need to update the replica_stub partition_config as well?
 			}
 			reply(msg, response);
@@ -174,6 +174,23 @@ namespace dsn {
 			if (err != ERR_OK)
 			{
 				// do we need to handle failures?
+			}
+			else
+			{
+				raft_membership_update_response rmu_response;
+				::unmarshall(response, rmu_response);
+
+				if (rmu_response.err == ERR_INVALID_BALLOT)
+				{
+					if (rmu_response.my_ballot > get_ballot())
+					{
+						//convert it to raft follower
+						replica_configuration new_config = _config;
+						new_config.ballot = rmu_response.my_ballot;
+						new_config.status = PS_SECONDARY;
+						update_local_configuration(new_config, false);
+					}
+				}
 			}
 		}
 
@@ -334,6 +351,7 @@ namespace dsn {
 			cu_request.type = CT_UPGRADE_TO_PRIMARY;
 			cu_request.config.app_type = _app_type;
 			cu_request.config.gpid = get_gpid();
+			cu_request.config.ballot = get_ballot();
 			cu_request.config.max_replica_count = _raft->get_raft_membership().size();
 			cu_request.config.primary = _stub->_primary_address;
 			cu_request.config.last_committed_decree = last_committed_decree();

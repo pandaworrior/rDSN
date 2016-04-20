@@ -173,6 +173,8 @@ void replica::on_group_check(const group_check_request& request, /*out*/ group_c
     {
     case PS_INACTIVE:
         break;
+	case PS_POTENTIAL_PRIMARY:
+		update_local_configuration_with_no_ballot_change(PS_SECONDARY);
     case PS_SECONDARY:
         if (request.last_committed_decree > last_committed_decree())
         {

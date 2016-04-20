@@ -1317,6 +1317,8 @@ void server_state::update_configuration(
         // update for stateful service (via replication framework)
         if (app.is_stateful)
         {
+			ddebug("received update configuration request from %s, gpid = %d.%d, ballot = %" PRId64, 
+				req->node.to_string(), old.gpid.app_id, old.gpid.pidx, req->config.ballot);
             if (is_partition_config_equal(old, req->config))
             {
                 // duplicate request
@@ -1326,7 +1328,7 @@ void server_state::update_configuration(
                 response.err = ERR_OK;
                 response.config = old;
             }
-            else if (old.ballot + 1 != req->config.ballot)
+            else if (old.ballot >= req->config.ballot) // raft allows holes in the ballot sequence
             {
                 dwarn("received invalid update configuration request from %s, gpid = %d.%d, ballot = %" PRId64 ", cur_ballot = %" PRId64,
                     req->node.to_string(), old.gpid.app_id, old.gpid.pidx, req->config.ballot, old.ballot);
@@ -1458,7 +1460,8 @@ void server_state::exec_pending_requests(global_partition_id gpid)
                 partition_configuration& old = app.partitions[gpid.pidx];
 
                 // ballot for stateful services is updated on membership update
-                if ((app.is_stateful && old.ballot + 1 != fwi.ballot)
+				// raft allows holes in the ballot sequence
+                if ((app.is_stateful && old.ballot >= fwi.ballot)
 
                 // ballot for stateless service is updated on binary update
                     || (!app.is_stateful && old.ballot != fwi.ballot)
@@ -1480,6 +1483,7 @@ void server_state::exec_pending_requests(global_partition_id gpid)
 
         if (wi.msg)
         {
+			ddebug("meta server ready to send config update reply");
             reply(wi.msg, resp);
             dsn_msg_release_ref(wi.msg);
         }
@@ -1493,12 +1497,13 @@ void server_state::exec_pending_requests(global_partition_id gpid)
 
 void server_state::update_configuration_internal(const configuration_update_request& request, /*out*/ configuration_update_response& response)
 {
+	ddebug("update config internal");
     app_state& app = _apps[request.config.gpid.app_id - 1];
     partition_configuration& old = app.partitions[request.config.gpid.pidx];
 
     if (app.is_stateful)
     {
-        if (old.ballot + 1 != request.config.ballot)
+        if (old.ballot >= request.config.ballot) // raft allows holes in the ballot sequence
         {
             response.err = ERR_INVALID_VERSION;
             response.config = old;

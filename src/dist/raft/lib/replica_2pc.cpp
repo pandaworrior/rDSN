@@ -278,6 +278,14 @@ void replica::on_prepare(dsn_message_t request)
             return;
         }
     }
+	else if (PS_POTENTIAL_PRIMARY == status())
+	{
+		// raft bug fix, when two candidates issue the same ballot number, one leader election fails
+		// the status has not changed to PS_SECONDARY before on_prepare
+		ddebug("candidate at ballot %u receives a prepare from new leader with the same ballot number",
+			get_ballot());
+		update_local_configuration_with_no_ballot_change(PS_SECONDARY);
+	}
 
     dassert (rconfig.status == status(), "");    
     if (decree <= last_committed_decree())

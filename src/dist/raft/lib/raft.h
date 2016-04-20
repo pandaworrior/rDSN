@@ -66,18 +66,21 @@ namespace dsn {
 		{
 			global_partition_id gpid;
 			::dsn::error_code err;
+			ballot my_ballot;
 		};
 
 		inline void marshall(::dsn::binary_writer& writer, const raft_membership_update_response& val)
 		{
 			marshall(writer, val.gpid);
 			marshall(writer, val.err);
+			marshall(writer, val.my_ballot);
 		}
 
 		inline void unmarshall(::dsn::binary_reader& reader, /*out*/ raft_membership_update_response& val)
 		{
 			unmarshall(reader, val.gpid);
 			unmarshall(reader, val.err);
+			unmarshall(reader, val.my_ballot);
 		}
 
 		// ---------- raft vote request message struct -------------

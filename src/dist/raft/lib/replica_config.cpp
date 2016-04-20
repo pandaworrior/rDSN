@@ -189,6 +189,8 @@ void replica::assign_primary_called_by_raft(configuration_update_request& propos
 		_primary_states.reconfiguration_task->cancel(true);
 	}
 
+	ddebug("send a membership update msg to meta server");
+
 	rpc_address target(_stub->_failure_detector->get_servers());
 	_primary_states.reconfiguration_task = rpc::call(
 		target,
@@ -433,6 +435,8 @@ void replica::update_configuration_on_meta_server(config_type type, ::dsn::rpc_a
 void replica::on_update_configuration_on_meta_server_reply(error_code err, dsn_message_t request, dsn_message_t response, std::shared_ptr<configuration_update_request> req)
 {
     check_hashed_access();
+
+	ddebug("update configuration reply");
 
     if (PS_INACTIVE != status() || _stub->is_connected() == false)
     {
