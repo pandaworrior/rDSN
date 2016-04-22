@@ -59,7 +59,7 @@ replica::replica(replica_stub* stub, global_partition_id gpid, const char* app_t
     sprintf(_name, "%u.%u@%s", gpid.app_id, gpid.pidx, stub->_primary_address.to_string());
     _options = &stub->options();
 
-	_raft = new raft(this, get_group_check_interval_ms(), 500, 1500);
+	_raft = new raft(this, get_group_check_interval_ms(), 1000, 1500);
     init_state();
     _config.gpid = gpid;
 

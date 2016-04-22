@@ -170,7 +170,6 @@ namespace dsn {
 
 		void replica::on_raft_update_membership_reply(error_code err, dsn_message_t request, dsn_message_t response)
 		{
-			ddebug("received an raft mem update reply from peers");
 			if (err != ERR_OK)
 			{
 				// do we need to handle failures?
@@ -334,8 +333,8 @@ namespace dsn {
 							_raft->_vote_set.insert(rv_resp.my_addr);
 							if (_raft->_vote_set.size() >= _raft->get_raft_majority_num())
 							{
-								ddebug("%s: receives %d vote replies more than majority %d, ready to be leader",
-									name(), _raft->_vote_set.size(), _raft->get_raft_majority_num());
+								ddebug("%s: receives %d vote replies more than majority %d, ready to be leader with ballot number % " PRId64,
+									name(), _raft->_vote_set.size(), _raft->get_raft_majority_num(), _raft->get_ballot());
 								// upgrade to primary via calling the legacy function
 								upgrade_to_primary_by_raft();
 							}
@@ -364,8 +363,8 @@ namespace dsn {
 
 		void replica::change_raft_role_to_leader()
 		{
-			ddebug("%s: changed raft role to leader",
-				name());
+			ddebug("%s: changed raft role to leader, ballot % " PRId64,
+				name(), get_ballot());
 			disable_raft_heartbeat_monitor_task();
 			disable_raft_leader_election_task();
 			install_raft_membership_on_replicas();
@@ -373,8 +372,8 @@ namespace dsn {
 
 		void replica::change_raft_role_to_follower()
 		{
-			ddebug("%s: changed raft role to follower",
-				name());
+			ddebug("%s: changed raft role to follower, ballot % " PRId64,
+				name(), get_ballot());
 			disable_raft_leader_election_task();
 			///////////////raft////////////////////////
 			//update the heartbeat receiving time
@@ -385,8 +384,8 @@ namespace dsn {
 
 		void replica::change_raft_role_to_candidate()
 		{
-			ddebug("%s: changed raft role to candidate",
-				name());
+			ddebug("%s: changed raft role to candidate, ballot % " PRId64,
+				name(), get_ballot());
 			disable_raft_heartbeat_monitor_task();
 			init_raft_leader_election_on_candidate();
 		}

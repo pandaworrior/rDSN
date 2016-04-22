@@ -1530,10 +1530,13 @@ void server_state::update_configuration_internal(const configuration_update_requ
                 node.primaries.insert(old.gpid);
                 break;
             case CT_UPGRADE_TO_PRIMARY:
-# ifndef NDEBUG
+				// raft bug fix, if a leader i becomes follower, but the running leader election fails, then
+				// i starts its own leader election and becomes the leader again, it will write itself
+				// as the primary to meta server, therefore, the following check will fail.
+/*# ifndef NDEBUG
                 dassert(old.primary != request.node, "");
                 dassert(std::find(old.secondaries.begin(), old.secondaries.end(), request.node) != old.secondaries.end(), "");
-# endif
+# endif*/
                 node.partitions.insert(old.gpid);
                 node.primaries.insert(old.gpid);
                 break;
